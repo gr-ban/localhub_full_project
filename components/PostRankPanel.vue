@@ -5,26 +5,14 @@ defineProps({
   items: { type: Array, default: () => [] },
   emptyMessage: { type: String, default: '아직 등록된 게시글이 없습니다.' }
 })
-
-const showMore = () => {
-  alert('전체 게시글 모아보기 페이지는 준비 중입니다.')
-}
 </script>
 
 <template>
   <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex flex-col h-full">
-    <div class="flex items-center justify-between mb-4">
-      <h3 class="flex items-center gap-2 font-bold text-[#34495E] text-sm">
-        <i :class="`fa-solid ${icon} text-[#21618C]`"></i>
-        {{ title }}
-      </h3>
-      <button
-        @click="showMore"
-        class="text-xs font-semibold text-gray-400 hover:text-[#21618C] transition flex items-center gap-1"
-      >
-        더보기 <i class="fa-solid fa-plus text-[10px]"></i>
-      </button>
-    </div>
+    <h3 class="flex items-center gap-2 font-bold text-[#34495E] text-sm mb-4">
+      <i :class="`fa-solid ${icon} text-[#21618C]`"></i>
+      {{ title }}
+    </h3>
 
     <div v-if="items.length" class="space-y-3 flex-1">
       <router-link
