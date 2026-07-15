@@ -15,6 +15,71 @@ const chatInput = ref('')
 const chatMessages = ref([])
 const chatContainer = ref(null)
 
+// --- OpenAI API key (client-side) helpers ---
+const LOCAL_API_KEY = 'localhub_openai_key'
+const getApiKey = () => {
+  try { return localStorage.getItem(LOCAL_API_KEY) || '' } catch (e) { return '' }
+}
+const setApiKey = (key) => {
+  try { localStorage.setItem(LOCAL_API_KEY, key) } catch (e) {}
+}
+const removeApiKey = () => {
+  try { localStorage.removeItem(LOCAL_API_KEY) } catch (e) {}
+}
+
+const apiModalOpen = ref(false)
+const apiKeyInput = ref(getApiKey())
+const apiStatus = ref('')
+
+const testApiKey = async (key) => {
+  apiStatus.value = '테스트 중...'
+  try {
+    const res = await fetch('https://api.openai.com/v1/models', {
+      headers: { Authorization: `Bearer ${key}` }
+    })
+    if (res.ok) {
+      apiStatus.value = '연결 성공'
+      return true
+    }
+    apiStatus.value = `연결 실패: ${res.status}`
+    return false
+  } catch (err) {
+    apiStatus.value = '네트워크/CORS 오류 또는 키가 유효하지 않습니다.'
+    return false
+  }
+}
+
+// Helper to call OpenAI Chat Completions (client-side). Keep payload small to control cost.
+const callOpenAI = async (userMessage) => {
+  const key = getApiKey()
+  if (!key) throw new Error('API key not set')
+
+  const body = {
+    model: 'gpt-3.5-turbo',
+    messages: [{ role: 'system', content: '당신은 서울 지역 정보를 도와주는 도우미입니다. 가능한 한 간결하게 답변하세요.' }, { role: 'user', content: userMessage }],
+    max_tokens: 500,
+    temperature: 0.2
+  }
+
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${key}`
+    },
+    body: JSON.stringify(body)
+  })
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '')
+    throw new Error(`OpenAI 에러 ${res.status}: ${txt}`)
+  }
+
+  const data = await res.json()
+  return data.choices?.[0]?.message?.content || ''
+}
+
+
 const categories = [
   { label: '관광지', value: '관광지' },
   { label: '레포츠', value: '레포츠' },
@@ -205,7 +270,7 @@ const reselectDistrict = () => {
   scrollToBottom()
 }
 
-const sendMessage = () => {
+const sendMessage = async () => {
   if (!chatInput.value.trim() || isChatLoading.value) return
 
   const userText = chatInput.value
@@ -213,57 +278,85 @@ const sendMessage = () => {
   chatInput.value = ''
   isChatLoading.value = true
 
-  setTimeout(() => {
-    const lower = userText.toLowerCase()
-    let reply = '죄송합니다. 이해하지 못했습니다. 아래 버튼을 선택하거나, 카테고리/구 이름 또는 장소 이름을 입력해 주세요.'
+  // 로컬 매칭 우선 처리
+  const lower = userText.toLowerCase()
+  let reply = '죄송합니다. 이해하지 못했습니다. 아래 버튼을 선택하거나, 카테고리/구 이름 또는 장소 이름을 입력해 주세요.'
 
-    const matchedPlace = findPlaceByText(userText)
-    if (matchedPlace) {
-      selectedCategory.value = matchedPlace.category
-      selectedDistrict.value = matchedPlace.gu || matchedPlace.address.match(/서울특별시\s([^\s]+구)/)?.[1] || ''
-      stage.value = 3
-      reply = `🔍 [직접 검색]
-장소: ${matchedPlace.name}
-분류: ${matchedPlace.category}
-주소: ${matchedPlace.address}
-이용 요금: ${matchedPlace.fee}
-주차 여부: ${matchedPlace.parking}
-특징: ${matchedPlace.desc}`
-      if (!viewedLocations.value.includes(matchedPlace.name)) {
-        viewedLocations.value.push(matchedPlace.name)
-      }
-    } else {
-      const matchedCategory = categories.find((option) => lower.includes(option.value.toLowerCase()))
-      if (matchedCategory) {
-        selectedCategory.value = matchedCategory.value
-        selectedDistrict.value = ''
-        stage.value = 2
-        reply = `📌 [${matchedCategory.label}] 카테고리를 선택하셨습니다. 이제 서울시의 구를 선택해 주세요.`
-      } else if (selectedCategory.value) {
-        const matchedDistrict = districtOptions.value.find((option) => lower.includes(option.value.toLowerCase()))
-        if (matchedDistrict) {
-          selectedDistrict.value = matchedDistrict.value
-          stage.value = 3
-          const matches = filteredItems.value
-          if (matches.length > 0) {
-            reply = `✅ [${selectedCategory.value} / ${matchedDistrict.value}] 선택 결과입니다.\n${formatLocationList(matches)}\n원하시는 장소를 입력하거나 다른 구를 선택해 보세요.`
-          } else {
-            reply = `⚠️ [${selectedCategory.value} / ${matchedDistrict.value}]에 해당하는 정보가 없습니다. 다른 구를 선택해 주세요.`
-          }
-        }
-      } else if (lower.includes('처음') || lower.includes('카테고리') || lower.includes('메뉴')) {
-        reply = '📌 카테고리를 선택해 주세요.'
-        stage.value = 1
-        selectedCategory.value = ''
-        selectedDistrict.value = ''
-      }
+  const matchedPlace = findPlaceByText(userText)
+  if (matchedPlace) {
+    selectedCategory.value = matchedPlace.category
+    selectedDistrict.value = matchedPlace.gu || matchedPlace.address.match(/서울특별시\s([^\s]+구)/)?.[1] || ''
+    stage.value = 3
+    reply = `🔍 [직접 검색]\n장소: ${matchedPlace.name}\n분류: ${matchedPlace.category}\n주소: ${matchedPlace.address}\n이용 요금: ${matchedPlace.fee}\n주차 여부: ${matchedPlace.parking}\n특징: ${matchedPlace.desc}`
+    if (!viewedLocations.value.includes(matchedPlace.name)) {
+      viewedLocations.value.push(matchedPlace.name)
     }
-
     chatMessages.value.push({ role: 'assistant', content: reply })
     isChatLoading.value = false
-
     scrollToBottom()
-  }, 500)
+    return
+  }
+
+  const matchedCategory = categories.find((option) => lower.includes(option.value.toLowerCase()))
+  if (matchedCategory) {
+    selectedCategory.value = matchedCategory.value
+    selectedDistrict.value = ''
+    stage.value = 2
+    reply = `📌 [${matchedCategory.label}] 카테고리를 선택하셨습니다. 이제 서울시의 구를 선택해 주세요.`
+    chatMessages.value.push({ role: 'assistant', content: reply })
+    isChatLoading.value = false
+    scrollToBottom()
+    return
+  }
+
+  if (selectedCategory.value) {
+    const matchedDistrict = districtOptions.value.find((option) => lower.includes(option.value.toLowerCase()))
+    if (matchedDistrict) {
+      selectedDistrict.value = matchedDistrict.value
+      stage.value = 3
+      const matches = filteredItems.value
+      if (matches.length > 0) {
+        reply = `✅ [${selectedCategory.value} / ${matchedDistrict.value}] 선택 결과입니다.\n${formatLocationList(matches)}\n원하시는 장소를 입력하거나 다른 구를 선택해 보세요.`
+      } else {
+        reply = `⚠️ [${selectedCategory.value} / ${matchedDistrict.value}]에 해당하는 정보가 없습니다. 다른 구를 선택해 주세요.`
+      }
+      chatMessages.value.push({ role: 'assistant', content: reply })
+      isChatLoading.value = false
+      scrollToBottom()
+      return
+    }
+  }
+
+  if (lower.includes('처음') || lower.includes('카테고리') || lower.includes('메뉴')) {
+    reply = '📌 카테고리를 선택해 주세요.'
+    stage.value = 1
+    selectedCategory.value = ''
+    selectedDistrict.value = ''
+    chatMessages.value.push({ role: 'assistant', content: reply })
+    isChatLoading.value = false
+    scrollToBottom()
+    return
+  }
+
+  // 로컬 매칭 없을 경우 클라이언트 OpenAI 호출 시도
+  const key = getApiKey()
+  if (!key) {
+    chatMessages.value.push({ role: 'assistant', content: '🔑 API 키가 설정되어 있지 않습니다. 상단의 API 키 설정 버튼을 눌러 개인 키를 입력해 주세요 (개발/테스트 용).\n경고: 브라우저에 키가 저장되며 노출 위험이 있습니다.' })
+    isChatLoading.value = false
+    scrollToBottom()
+    return
+  }
+
+  try {
+    const aiReply = await callOpenAI(userText)
+    chatMessages.value.push({ role: 'assistant', content: aiReply })
+  } catch (err) {
+    console.error(err)
+    chatMessages.value.push({ role: 'assistant', content: `AI 호출 중 오류가 발생했습니다: ${err.message}. (키/네트워크/CORS 확인)` })
+  }
+
+  isChatLoading.value = false
+  scrollToBottom()
 }
 </script>
 
@@ -280,10 +373,29 @@ const sendMessage = () => {
             <i class="fa-solid fa-trash"></i>
             <span>대화 클리어</span>
           </button>
+          <button @click="apiModalOpen = true" title="API 키 설정" class="text-sm text-white/90 hover:text-white/100 p-2 rounded-md hover:bg-white/5 flex items-center gap-2">
+            <i class="fa-solid fa-key"></i>
+            <span>API 키 설정</span>
+          </button>
         </div>
       </div>
 
       <div class="flex-1 min-h-0 bg-[#F7F9FB]">
+        <div v-if="apiModalOpen" class="fixed inset-0 z-60 flex items-center justify-center p-4">
+           <div class="absolute inset-0 bg-black/50" @click="apiModalOpen = false"></div>
+           <div class="relative bg-white rounded-2xl p-4 w-full max-w-md z-70 shadow-lg">
+             <h3 class="font-bold text-sm mb-2">OpenAI API 키 설정 (개발/테스트용)</h3>
+             <p class="text-xs text-gray-500 mb-3">주의: 브라우저 localStorage에 키가 저장됩니다. 운영 환경에서는 백엔드 프록시를 사용하세요.</p>
+             <input v-model="apiKeyInput" type="password" placeholder="sk-..." class="w-full border rounded px-3 py-2 mb-2 text-sm">
+             <div class="flex gap-2 justify-end">
+               <button @click="removeApiKey(); apiKeyInput = ''" class="px-3 py-2 rounded bg-gray-100 text-sm">삭제</button>
+               <button @click="testApiKey(apiKeyInput)" class="px-3 py-2 rounded bg-gray-200 text-sm">연결 테스트</button>
+               <button @click="(async()=>{ const ok = await testApiKey(apiKeyInput); if(ok){ setApiKey(apiKeyInput); apiModalOpen = false } })()" class="px-3 py-2 rounded bg-[#2F4F4F] text-white text-sm">저장 후 닫기</button>
+             </div>
+             <div class="text-xs text-gray-600 mt-2">상태: {{ apiStatus }}</div>
+           </div>
+         </div>
+
         <div ref="chatContainer" class="h-full overflow-y-auto overflow-x-hidden p-4 text-sm scroll-smooth">
           <div class="max-w-[85%] rounded-2xl rounded-bl-md bg-white p-3 border border-gray-200 leading-relaxed text-gray-700 shadow-sm mb-4">
             안녕하세요! 오랫봇입니다. 아래 버튼을 눌러 먼저 카테고리와 구를 순서대로 선택해 주세요.
