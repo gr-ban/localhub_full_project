@@ -17,98 +17,36 @@ const chatContainer = ref(null)
 
 // OpenAI API key must be kept server-side. Client does not store or use API keys.
 
-// Helper to call OpenAI directly from the client using VITE_ env key.
-// WARNING: Using `VITE_` env keys exposes them in the built frontend. Use only for development/testing.
+// Replace existing callOpenAI implementation with this (server proxy)
 const callOpenAI = async (userMessage) => {
-  const key = import.meta.env.VITE_OPENAI_KEY || ''
-  if (!key) throw new Error('환경변수 VITE_OPENAI_KEY가 설정되어 있지 않습니다.')
-
   const modelName = 'gpt-5-mini'
 
-  const tryExtract = (obj) => {
-    if (!obj) return ''
-    if (typeof obj === 'string') return obj
-    if (obj.output_text) return obj.output_text
-    if (obj.output && Array.isArray(obj.output)) {
-      for (const out of obj.output) {
-        if (typeof out === 'string') return out
-        if (out.content && Array.isArray(out.content)) {
-          const parts = out.content.map(c => c.text || c.content || '').filter(Boolean)
-          if (parts.length) return parts.join('\n')
-        }
-        if (out.text) return out.text
-      }
-    }
-    if (obj.choices && Array.isArray(obj.choices)) {
-      const c = obj.choices[0]
-      if (c?.message?.content) return c.message.content
-      if (c?.text) return c.text
-    }
-    return ''
-  }
-
-  // For gpt-5-series use Responses API
-  if (modelName.startsWith('gpt-5')) {
-    const body = {
-      model: modelName,
-      input: [
-        { role: 'system', content: '당신은 서울 지역 정보를 도와주는 도우미입니다. 가능한 한 간결하게 답변하세요.' },
-        { role: 'user', content: userMessage }
-      ],
-      max_completion_tokens: 500
-    }
-
-    const res = await fetch('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${key}`
-      },
-      body: JSON.stringify(body)
-    })
-
-    if (!res.ok) {
-      const txt = await res.text().catch(() => '')
-      throw new Error(`OpenAI 에러 ${res.status}: ${txt}`)
-    }
-
-    const data = await res.json()
-    const extracted = tryExtract(data)
-    if (!extracted) throw new Error('모델이 응답 내용을 반환하지 않았습니다.')
-    return extracted
-  }
-
-  // Fallback to chat completions for older models
   const body = {
     model: modelName,
-    messages: [
+    input: [
       { role: 'system', content: '당신은 서울 지역 정보를 도와주는 도우미입니다. 가능한 한 간결하게 답변하세요.' },
       { role: 'user', content: userMessage }
-    ],
-    max_completion_tokens: 500,
-    temperature: 0.2
+    ]
   }
 
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+  const url = '/api/openai' // Vite dev proxy forwards /api to backend
+
+  const res = await fetch(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${key}`
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
   })
 
   if (!res.ok) {
     const txt = await res.text().catch(() => '')
-    throw new Error(`OpenAI 에러 ${res.status}: ${txt}`)
+    throw new Error(`프록시 에러 ${res.status}: ${txt}`)
   }
 
-  const data = await res.json()
-  const result = data.choices?.[0]?.message?.content || ''
-  if (!result) throw new Error('모델이 응답 내용을 반환하지 않았습니다.')
-  return result
+  const data = await res.json().catch(() => null)
+  const extracted = (data && data.text) || (typeof data === 'string' ? data : '')
+  if (!extracted) throw new Error('모델 응답이 없습니다.')
+  return extracted
 }
-
 
 const categories = [
   { label: '관광지', value: '관광지' },
@@ -215,7 +153,7 @@ const handleDateSelection = (year, month, day) => {
   // find matching festivals/events
   const matches = (festivalData.items || []).filter((it) => {
     const s = it.eventstartdate || it.createdtime || it.modifiedtime || ''
-    const e = it.eventenddate || s
+    const e = it.eventenddate || it.modifiedtime || s
     if (!s) return false
     return s <= ymd && ymd <= e
   })

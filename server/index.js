@@ -1,3 +1,4 @@
+import 'dotenv/config'
 import express from 'express'
 import process from 'process'
 
@@ -56,9 +57,9 @@ app.post('/api/openai', async (req, res) => {
       endpoint = 'https://api.openai.com/v1/responses'
       // Accept either `input` or `messages` (convert messages to input if provided)
       if (input) {
-        body = { model, input, max_completion_tokens: 500 }
+        body = { model, input, max_output_tokens: 500 }
       } else if (messages) {
-        body = { model, input: messages, max_completion_tokens: 500 }
+        body = { model, input: messages, max_output_tokens: 500 }
       } else {
         return res.status(400).json({ error: 'missing_input_or_messages' })
       }
@@ -68,7 +69,7 @@ app.post('/api/openai', async (req, res) => {
       body = {
         model,
         messages,
-        max_completion_tokens: 500,
+        max_tokens: 500,
         temperature: 0.2
       }
     }
