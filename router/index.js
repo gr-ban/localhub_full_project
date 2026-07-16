@@ -4,6 +4,7 @@ import SearchResult from '../views/Searchresult.vue'
 import BoardListView from '../views/BoardListview.vue'
 import BoardDetail from '../views/BoardDetail.vue'
 import BoardForm from '../views/BoardForm.vue'
+import InfoView from '../views/InfoView.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -17,6 +18,11 @@ const router = createRouter({
       path: '/search',
       name: 'search-result',
       component: SearchResult
+    },
+    {
+      path: '/info',
+      name: 'info',
+      component: InfoView
     },
     {
       path: '/board/:category',

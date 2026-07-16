@@ -21,7 +21,11 @@ const boards = [
 ]
 
 const goBoard = (slug) => {
-  router.push(`/board/${encodeURIComponent(slug)}`)
+  if (slug === 'info') {
+    router.push('/info')
+  } else {
+    router.push(`/board/${encodeURIComponent(slug)}`)
+  }
 }
 </script>
 
@@ -34,6 +38,11 @@ const goBoard = (slug) => {
             <i class="fa-solid fa-map-location-dot"></i>
           </div>
           <span class="text-sm font-bold">홈으로</span>
+        </button>
+
+        <!-- explicit Info button -->
+        <button class="ml-3 text-sm font-semibold px-3 py-1 rounded bg-white/10 hover:bg-white/20" @click="() => router.push('/info')">
+          정보
         </button>
 
         <!-- 바로 이동 배너 (데스크탑) -->
