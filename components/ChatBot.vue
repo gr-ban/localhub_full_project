@@ -11,6 +11,7 @@ import festivalData from '../assets/data/서울_축제공연행사.json'
 
 const isChatOpen = ref(true)
 const isChatLoading = ref(false)
+const aiStatus = ref('unknown') // 'unknown' | 'connected' | 'failed'
 const chatInput = ref('')
 const chatMessages = ref([])
 const chatContainer = ref(null)
@@ -129,6 +130,7 @@ watch([chatMessages, isChatLoading], () => {
 
 onMounted(() => {
   scrollToBottom()
+  checkAIConnection()
   // listen for calendar date selections
   window.addEventListener('localhub-date-selected', (e) => {
     try {
@@ -196,6 +198,34 @@ const handleDateSelection = (year, month, day) => {
 
   chatMessages.value.push({ role: 'assistant', content: reply })
   scrollToBottom()
+}
+
+// Probe AI connectivity once on mount
+const checkAIConnection = async () => {
+  try {
+    const probeBody = {
+      model: 'gpt-5-mini',
+      input: [
+        { role: 'system', content: 'You are a tiny health-check responder.' },
+        { role: 'user', content: 'ping' }
+      ]
+    }
+    const res = await fetch('/api/openai', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(probeBody)
+    })
+    if (!res.ok) {
+      aiStatus.value = 'failed'
+      return
+    }
+    const d = await res.json().catch(() => null)
+    const text = (d && d.text) || ''
+    if (text && text.length > 0) aiStatus.value = 'connected'
+    else aiStatus.value = 'failed'
+  } catch (e) {
+    aiStatus.value = 'failed'
+  }
 }
 
 const districtOptions = computed(() => {
@@ -394,7 +424,12 @@ const sendMessage = async () => {
       <div class="bg-[#2F4F4F] text-white p-4 font-bold text-sm flex items-center justify-between">
         <div class="flex items-center gap-2 min-w-0">
           <div class="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center shrink-0">🤖</div>
-          <span class="whitespace-nowrap">오랫봇</span>
+          <span class="whitespace-nowrap flex items-center gap-2">
+            <span>오랫봇</span>
+            <span v-if="aiStatus === 'connected'" class="w-2 h-2 rounded-full bg-green-400 block" title="AI 연결됨"></span>
+            <span v-else-if="aiStatus === 'failed'" class="w-2 h-2 rounded-full bg-red-400 block" title="AI 연결 실패"></span>
+            <span v-else class="w-2 h-2 rounded-full bg-gray-400 block" title="AI 연결 상태: 확인 중"></span>
+          </span>
         </div>
         <div class="flex items-center gap-2">
           <button @click="clearConversation" title="대화 지우기" class="text-sm text-white/90 hover:text-white/100 p-2 rounded-md hover:bg-white/5 flex items-center gap-2">
